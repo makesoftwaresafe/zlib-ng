@@ -1,10 +1,12 @@
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.5.1...3.29.0)
 if(CMAKE_VERSION VERSION_LESS 3.12)
     cmake_policy(VERSION ${CMAKE_VERSION})
-else()
-    cmake_policy(VERSION 3.5.1...3.29.0)
 endif()
 message(STATUS "Using CMake version ${CMAKE_VERSION}")
+
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD) # CMake 3.30: call FetchContent_Populate() with just the name of a dependency
+endif()
 
 # If not specified on the command line, enable C11 as the default
 # Configuration items that affect the global compiler environment standards
@@ -91,7 +93,6 @@ option(WITH_MAINTAINER_WARNINGS "Build with project maintainer warnings" OFF)
 option(WITH_CODE_COVERAGE "Enable code coverage reporting" OFF)
 option(WITH_INFLATE_STRICT "Build with strict inflate distance checking" OFF)
 option(WITH_INFLATE_ALLOW_INVALID_DIST "Build with zero fill for inflate invalid distances" OFF)
-option(WITH_UNALIGNED "Support unaligned reads on platforms that support it" ON)
 
 set(ZLIB_SYMBOL_PREFIX "" CACHE STRING "Give this prefix to all publicly exported symbols.
 Useful when embedding into a larger library.
@@ -145,7 +146,6 @@ mark_as_advanced(FORCE
     WITH_RVV
     WITH_INFLATE_STRICT
     WITH_INFLATE_ALLOW_INVALID_DIST
-    WITH_UNALIGNED
     INSTALL_UTILS
     )
 
@@ -193,7 +193,7 @@ elseif(MSVC)
     # /Oi ?
     set(WARNFLAGS /W3 /w34242 /WX)
     set(WARNFLAGS_MAINTAINER /W4)
-    set(WARNFLAGS_DISABLE /wd4206 /wd4054)
+    set(WARNFLAGS_DISABLE /wd4206 /wd4054 /wd4324)
     if(BASEARCH_ARM_FOUND)
         add_definitions(-D_ARM_WINAPI_PARTITION_DESKTOP_SDK_AVAILABLE)
         if(NOT "${ARCH}" MATCHES "aarch64")
@@ -334,12 +334,6 @@ if(NOT WITH_NATIVE_INSTRUCTIONS)
     endforeach()
 endif()
 
-# Set architecture alignment requirements
-if(NOT WITH_UNALIGNED)
-    add_definitions(-DNO_UNALIGNED)
-    message(STATUS "Unaligned reads manually disabled")
-endif()
-
 # Apply warning compiler flags
 if(WITH_MAINTAINER_WARNINGS)
     add_compile_options(${WARNFLAGS} ${WARNFLAGS_MAINTAINER} ${WARNFLAGS_DISABLE})
@@ -356,6 +350,16 @@ endif()
 if(NOT WITH_CODE_COVERAGE AND NOT MSVC AND NOT CMAKE_C_FLAGS MATCHES "([\\/\\-]O)3")
     string(REGEX REPLACE "([\\/\\-]O)3" "\\12"
         CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+endif()
+
+# Force Visual C++ to use UTF-8
+if(MSVC)
+    if (NOT CMAKE_C_FLAGS MATCHES "[\\/\\-]utf-8")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /utf-8")
+    endif()
+    if (NOT CMAKE_CXX_FLAGS MATCHES "[\\/\\-]utf-8")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /utf-8")
+    endif()
 endif()
 
 #
@@ -967,8 +971,10 @@ if(WITH_OPTIM)
                 add_definitions(-DX86_AVX512)
                 list(APPEND AVX512_SRCS ${ARCHDIR}/adler32_avx512.c)
                 add_feature_info(AVX512_ADLER32 1 "Support AVX512-accelerated adler32, using \"${AVX512FLAG}\"")
-                list(APPEND ZLIB_ARCH_SRCS ${AVX512_SRCS})
+                list(APPEND AVX512_SRCS ${ARCHDIR}/chunkset_avx512.c)
+                add_feature_info(AVX512_CHUNKSET 1 "Support AVX512 optimized chunkset, using \"${AVX512FLAG}\"")
                 list(APPEND ZLIB_ARCH_HDRS ${ARCHDIR}/adler32_avx512_p.h)
+                list(APPEND ZLIB_ARCH_SRCS ${AVX512_SRCS})
                 set_property(SOURCE ${AVX512_SRCS} PROPERTY COMPILE_FLAGS "${AVX512FLAG} ${NOLTOFLAG}")
             else()
                 set(WITH_AVX512 OFF)
@@ -1068,6 +1074,9 @@ set(ZLIB_PUBLIC_HDRS
     ${CMAKE_CURRENT_BINARY_DIR}/zlib${SUFFIX}.h
 )
 set(ZLIB_PRIVATE_HDRS
+    arch/generic/chunk_permute_table.h
+    arch/generic/compare256_p.h
+    arch/generic/generic_functions.h
     adler32_p.h
     chunkset_tpl.h
     compare256_rle.h
