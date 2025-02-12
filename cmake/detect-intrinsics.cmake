@@ -1,22 +1,46 @@
 # detect-intrinsics.cmake -- Detect compiler intrinsics support
 # Licensed under the Zlib license, see LICENSE.md for details
 
-macro(check_acle_compiler_flag)
+macro(check_armv8_compiler_flag)
     if(NOT NATIVEFLAG)
         if(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
             check_c_compiler_flag("-march=armv8-a+crc" HAVE_MARCH_ARMV8_CRC)
             if(HAVE_MARCH_ARMV8_CRC)
-                set(ACLEFLAG "-march=armv8-a+crc" CACHE INTERNAL "Compiler option to enable ACLE support")
+                set(ARMV8FLAG "-march=armv8-a+crc" CACHE INTERNAL "Compiler option to enable ARMv8 support")
             else()
                 check_c_compiler_flag("-march=armv8-a+crc+simd" HAVE_MARCH_ARMV8_CRC_SIMD)
                 if(HAVE_MARCH_ARMV8_CRC_SIMD)
-                    set(ACLEFLAG "-march=armv8-a+crc+simd" CACHE INTERNAL "Compiler option to enable ACLE support")
+                    set(ARMV8FLAG "-march=armv8-a+crc+simd" CACHE INTERNAL "Compiler option to enable ARMv8 support")
+                else()
+                    check_c_compiler_flag("-Wa,-march=armv8-a+crc" HAVE_WA_MARCH_ARMV8_CRC)
+                    if(HAVE_WA_MARCH_ARMV8_CRC)
+                        set(ARMV8FLAG "-Wa,-march=armv8-a+crc" CACHE INTERNAL "Compiler option to enable ARMv8 support")
+                    else()
+                        check_c_compiler_flag("-Wa,-march=armv8-a+crc+simd" HAVE_WA_MARCH_ARMV8_CRC_SIMD)
+                        if(HAVE_WA_MARCH_ARMV8_CRC_SIMD)
+                            set(ARMV8FLAG "-Wa,-march=armv8-a+crc+simd" CACHE INTERNAL "Compiler option to enable ARMv8 support")
+                        endif()
+                    endif()
                 endif()
             endif()
         endif()
     endif()
-    # Check whether compiler supports ARMv8 CRC intrinsics
-    set(CMAKE_REQUIRED_FLAGS "${ACLEFLAG} ${NATIVEFLAG} ${ZNOLTOFLAG}")
+    # Check whether compiler supports ARMv8 inline asm
+    set(CMAKE_REQUIRED_FLAGS "${ARMV8FLAG} ${NATIVEFLAG} ${ZNOLTOFLAG}")
+    check_c_source_compiles(
+        "unsigned int f(unsigned int a, unsigned int b) {
+            unsigned int c;
+        #ifdef __aarch64__
+            __asm__ __volatile__ ( \"crc32w %w0, %w1, %w2\" : \"=r\" (c) : \"r\" (a), \"r\" (b));
+        #else
+            __asm__ __volatile__ ( \"crc32w %0, %1, %2\" : \"=r\" (c) : \"r\" (a), \"r\" (b));
+        #endif
+            return (int)c;
+        }
+        int main(void) { return f(1,2); }"
+        HAVE_ARMV8_INLINE_ASM
+    )
+    # Check whether compiler supports ARMv8 intrinsics
     check_c_source_compiles(
         "#if defined(_MSC_VER)
         #include <intrin.h>
@@ -27,7 +51,7 @@ macro(check_acle_compiler_flag)
             return __crc32w(a, b);
         }
         int main(void) { return 0; }"
-        HAVE_ACLE_FLAG
+        HAVE_ARMV8_INTRIN
     )
     set(CMAKE_REQUIRED_FLAGS)
 endmacro()
@@ -38,6 +62,11 @@ macro(check_armv6_compiler_flag)
             check_c_compiler_flag("-march=armv6" HAVE_MARCH_ARMV6)
             if(HAVE_MARCH_ARMV6)
                 set(ARMV6FLAG "-march=armv6" CACHE INTERNAL "Compiler option to enable ARMv6 support")
+            else()
+                check_c_compiler_flag("-Wa,-march=armv6" HAVE_WA_MARCH_ARMV6)
+                if(HAVE_WA_MARCH_ARMV6)
+                    set(ARMV6FLAG "-Wa,-march=armv6" CACHE INTERNAL "Compiler option to enable ARMv6 support")
+                endif()
             endif()
         endif()
     endif()
@@ -76,14 +105,14 @@ macro(check_avx512_intrinsics)
     if(NOT NATIVEFLAG)
         if(CMAKE_C_COMPILER_ID MATCHES "Intel")
             if(CMAKE_HOST_UNIX OR APPLE)
-                set(AVX512FLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl")
+                set(AVX512FLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl -mbmi2")
             else()
                 set(AVX512FLAG "/arch:AVX512")
             endif()
         elseif(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
             # For CPUs that can benefit from AVX512, it seems GCC generates suboptimal
             # instruction scheduling unless you specify a reasonable -mtune= target
-            set(AVX512FLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl")
+            set(AVX512FLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl -mbmi2")
             if(NOT MSVC)
                 check_c_compiler_flag("-mtune=cascadelake" HAVE_CASCADE_LAKE)
                 if(HAVE_CASCADE_LAKE)
@@ -114,12 +143,12 @@ macro(check_avx512vnni_intrinsics)
     if(NOT NATIVEFLAG)
         if(CMAKE_C_COMPILER_ID MATCHES "Intel")
             if(CMAKE_HOST_UNIX OR APPLE OR CMAKE_C_COMPILER_ID MATCHES "IntelLLVM")
-                set(AVX512VNNIFLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512vnni")
+                set(AVX512VNNIFLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512vnni -mbmi2")
             else()
                 set(AVX512VNNIFLAG "/arch:AVX512")
             endif()
         elseif(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
-            set(AVX512VNNIFLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512vnni")
+            set(AVX512VNNIFLAG "-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512vnni -mbmi2")
             if(NOT MSVC)
                 check_c_compiler_flag("-mtune=cascadelake" HAVE_CASCADE_LAKE)
                 if(HAVE_CASCADE_LAKE)
@@ -151,12 +180,12 @@ macro(check_avx2_intrinsics)
     if(NOT NATIVEFLAG)
         if(CMAKE_C_COMPILER_ID MATCHES "Intel")
             if(CMAKE_HOST_UNIX OR APPLE)
-                set(AVX2FLAG "-mavx2")
+                set(AVX2FLAG "-mavx2 -mbmi2")
             else()
                 set(AVX2FLAG "/arch:AVX2")
             endif()
         elseif(CMAKE_C_COMPILER_ID MATCHES "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
-            set(AVX2FLAG "-mavx2")
+            set(AVX2FLAG "-mavx2 -mbmi2")
         elseif(MSVC)
             set(AVX2FLAG "/arch:AVX2")
         endif()

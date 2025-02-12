@@ -20,12 +20,12 @@ Features
 * Deflate medium and quick algorithms based on Intel’s zlib fork
 * Support for CPU intrinsics when available
   * Adler32 implementation using SSSE3, AVX2, AVX512, AVX512-VNNI, Neon, VMX & VSX
-  * CRC32-B implementation using PCLMULQDQ, VPCLMULQDQ, ACLE, & IBM Z
+  * CRC32-B implementation using PCLMULQDQ, VPCLMULQDQ, ARMv8, & IBM Z
   * Slide hash implementations using SSE2, AVX2, ARMv6, Neon, VMX & VSX
   * Compare256 implementations using SSE2, AVX2, Neon, POWER9 & RVV
   * Inflate chunk copying using SSE2, SSSE3, AVX, Neon & VSX
   * Support for hardware-accelerated deflate using IBM Z DFLTCC
-* Unaligned memory read/writes and large bit buffer improvements
+* Safe unaligned memory read/writes and large bit buffer improvements
 * Includes improvements from Cloudflare and Intel forks
 * Configure, CMake, and NMake build system support
 * Comprehensive set of CMake unit tests
@@ -204,7 +204,7 @@ Advanced Build Options
 | WITH_SSE42                      |                       | Build with SSE42 intrinsics                                         | ON                     |
 | WITH_PCLMULQDQ                  |                       | Build with PCLMULQDQ intrinsics                                     | ON                     |
 | WITH_VPCLMULQDQ                 | --without-vpclmulqdq  | Build with VPCLMULQDQ intrinsics                                    | ON                     |
-| WITH_ACLE                       | --without-acle        | Build with ACLE intrinsics                                          | ON                     |
+| WITH_ARMV8                      | --without-armv8       | Build with ARMv8 intrinsics                                          | ON                     |
 | WITH_NEON                       | --without-neon        | Build with NEON intrinsics                                          | ON                     |
 | WITH_ARMV6                      | --without-armv6       | Build with ARMv6 intrinsics                                         | ON                     |
 | WITH_ALTIVEC                    | --without-altivec     | Build with AltiVec (VMX) intrinsics                                 | ON                     |
@@ -213,7 +213,6 @@ Advanced Build Options
 | WITH_CRC32_VX                   | --without-crc32-vx    | Build with vectorized CRC32 on IBM Z                                | ON                     |
 | WITH_DFLTCC_DEFLATE             | --with-dfltcc-deflate | Build with DFLTCC intrinsics for compression on IBM Z               | OFF                    |
 | WITH_DFLTCC_INFLATE             | --with-dfltcc-inflate | Build with DFLTCC intrinsics for decompression on IBM Z             | OFF                    |
-| WITH_UNALIGNED                  | --without-unaligned   | Allow optimizations that use unaligned reads if safe on current arch| ON                     |
 | WITH_INFLATE_STRICT             |                       | Build with strict inflate distance checking                         | OFF                    |
 | WITH_INFLATE_ALLOW_INVALID_DIST |                       | Build with zero fill for inflate invalid distances                  | OFF                    |
 | INSTALL_UTILS                   |                       | Copy minigzip and minideflate during install                        | OFF                    |

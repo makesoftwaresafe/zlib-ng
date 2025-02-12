@@ -1,10 +1,12 @@
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.5.1...3.29.0)
 if(CMAKE_VERSION VERSION_LESS 3.12)
     cmake_policy(VERSION ${CMAKE_VERSION})
-else()
-    cmake_policy(VERSION 3.5.1...3.29.0)
 endif()
 message(STATUS "Using CMake version ${CMAKE_VERSION}")
+
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD) # CMake 3.30: call FetchContent_Populate() with just the name of a dependency
+endif()
 
 # If not specified on the command line, enable C11 as the default
 # Configuration items that affect the global compiler environment standards
@@ -91,7 +93,6 @@ option(WITH_MAINTAINER_WARNINGS "Build with project maintainer warnings" OFF)
 option(WITH_CODE_COVERAGE "Enable code coverage reporting" OFF)
 option(WITH_INFLATE_STRICT "Build with strict inflate distance checking" OFF)
 option(WITH_INFLATE_ALLOW_INVALID_DIST "Build with zero fill for inflate invalid distances" OFF)
-option(WITH_UNALIGNED "Support unaligned reads on platforms that support it" ON)
 
 set(ZLIB_SYMBOL_PREFIX "" CACHE STRING "Give this prefix to all publicly exported symbols.
 Useful when embedding into a larger library.
@@ -102,9 +103,14 @@ set(WITH_SANITIZER AUTO CACHE STRING "Enable sanitizer support")
 set_property(CACHE WITH_SANITIZER PROPERTY STRINGS "Memory" "Address" "Undefined" "Thread")
 
 if(BASEARCH_ARM_FOUND)
-    option(WITH_ACLE "Build with ACLE" ON)
+    option(WITH_ARMV8 "Build with ARMv8 CRC32 intrinsics" ON)
     option(WITH_NEON "Build with NEON intrinsics" ON)
     cmake_dependent_option(WITH_ARMV6 "Build with ARMv6 SIMD" ON "NOT ARCH MATCHES \"aarch64\"" OFF)
+
+    # Provided for backward compatibility
+    if(DEFINED WITH_ACLE)
+        set(WITH_ARMV8 ${WITH_ACLE})
+    endif()
 elseif(BASEARCH_PPC_FOUND)
     option(WITH_ALTIVEC "Build with AltiVec (VMX) optimisations for PowerPC" ON)
     option(WITH_POWER8 "Build with optimisations for POWER8" ON)
@@ -131,7 +137,7 @@ option(INSTALL_UTILS "Copy minigzip and minideflate during install" OFF)
 mark_as_advanced(FORCE
     ZLIB_SYMBOL_PREFIX
     WITH_REDUCED_MEM
-    WITH_ACLE WITH_NEON
+    WITH_ARMV8 WITH_NEON
     WITH_ARMV6
     WITH_DFLTCC_DEFLATE
     WITH_DFLTCC_INFLATE
@@ -145,7 +151,6 @@ mark_as_advanced(FORCE
     WITH_RVV
     WITH_INFLATE_STRICT
     WITH_INFLATE_ALLOW_INVALID_DIST
-    WITH_UNALIGNED
     INSTALL_UTILS
     )
 
@@ -193,7 +198,7 @@ elseif(MSVC)
     # /Oi ?
     set(WARNFLAGS /W3 /w34242 /WX)
     set(WARNFLAGS_MAINTAINER /W4)
-    set(WARNFLAGS_DISABLE /wd4206 /wd4054)
+    set(WARNFLAGS_DISABLE /wd4206 /wd4054 /wd4324)
     if(BASEARCH_ARM_FOUND)
         add_definitions(-D_ARM_WINAPI_PARTITION_DESKTOP_SDK_AVAILABLE)
         if(NOT "${ARCH}" MATCHES "aarch64")
@@ -301,7 +306,7 @@ if(NOT WITH_RUNTIME_CPU_DETECTION)
         message(STATUS "WARNING: Microsoft Visual Studio does not support compile time detection of CPU features for \"/arch\" before \"AVX\"")
         # Workaround for MSVC. By default MSVC does not define the __SSE*__ macros.
         # Fix it if AVX is enabled.
-        set(CMAKE_REQUIRED_FLAGS "${NATIVEFLAG}")
+        set(CMAKE_REQUIRED_FLAGS "${NATIVEFLAG} ${ZNOLTOFLAG}")
         check_c_source_compiles(
             "#ifndef __AVX__
             #  error \"AVX is not enabled.\"
@@ -334,12 +339,6 @@ if(NOT WITH_NATIVE_INSTRUCTIONS)
     endforeach()
 endif()
 
-# Set architecture alignment requirements
-if(NOT WITH_UNALIGNED)
-    add_definitions(-DNO_UNALIGNED)
-    message(STATUS "Unaligned reads manually disabled")
-endif()
-
 # Apply warning compiler flags
 if(WITH_MAINTAINER_WARNINGS)
     add_compile_options(${WARNFLAGS} ${WARNFLAGS_MAINTAINER} ${WARNFLAGS_DISABLE})
@@ -356,6 +355,16 @@ endif()
 if(NOT WITH_CODE_COVERAGE AND NOT MSVC AND NOT CMAKE_C_FLAGS MATCHES "([\\/\\-]O)3")
     string(REGEX REPLACE "([\\/\\-]O)3" "\\12"
         CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+endif()
+
+# Force Visual C++ to use UTF-8
+if(MSVC)
+    if (NOT CMAKE_C_FLAGS MATCHES "[\\/\\-]utf-8")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /utf-8")
+    endif()
+    if (NOT CMAKE_CXX_FLAGS MATCHES "[\\/\\-]utf-8")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /utf-8")
+    endif()
 endif()
 
 #
@@ -487,6 +496,7 @@ endif()
 #
 # Check for __builtin_assume_aligned(x,n) support in the compiler
 #
+set(CMAKE_REQUIRED_FLAGS ${ZNOLTOFLAG})
 check_c_source_compiles(
     "char *test(char *buffer) {
         char *abuffer = __builtin_assume_aligned(buffer,64);
@@ -499,10 +509,12 @@ check_c_source_compiles(
 if(HAVE_BUILTIN_ASSUME_ALIGNED)
     add_definitions(-DHAVE_BUILTIN_ASSUME_ALIGNED)
 endif()
+set(CMAKE_REQUIRED_FLAGS)
 
 #
 # check for __builtin_ctz() support in the compiler
 #
+set(CMAKE_REQUIRED_FLAGS ${ZNOLTOFLAG})
 check_c_source_compiles(
     "int main(void) {
         unsigned int zero = 0;
@@ -515,10 +527,12 @@ check_c_source_compiles(
 if(HAVE_BUILTIN_CTZ)
     add_definitions(-DHAVE_BUILTIN_CTZ)
 endif()
+set(CMAKE_REQUIRED_FLAGS)
 
 #
 # check for __builtin_ctzll() support in the compiler
 #
+set(CMAKE_REQUIRED_FLAGS ${ZNOLTOFLAG})
 check_c_source_compiles(
     "int main(void) {
         unsigned int zero = 0;
@@ -531,6 +545,7 @@ check_c_source_compiles(
 if(HAVE_BUILTIN_CTZLL)
     add_definitions(-DHAVE_BUILTIN_CTZLL)
 endif()
+set(CMAKE_REQUIRED_FLAGS)
 
 #
 # check for ptrdiff_t support
@@ -701,19 +716,22 @@ if(WITH_OPTIM)
             list(APPEND ZLIB_ARCH_SRCS ${ARCHDIR}/arm_features.c)
         endif()
 
-        if(WITH_ACLE)
-            check_acle_compiler_flag()
-            if(HAVE_ACLE_FLAG)
-                add_definitions(-DARM_ACLE)
-                set(ACLE_SRCS ${ARCHDIR}/crc32_acle.c)
-                set_property(SOURCE ${ACLE_SRCS} PROPERTY COMPILE_FLAGS "${ACLEFLAG} ${NOLTOFLAG}")
-                list(APPEND ZLIB_ARCH_SRCS ${ACLE_SRCS})
-                add_feature_info(ACLE_CRC 1 "Support ACLE optimized CRC hash generation, using \"${ACLEFLAG}\"")
+        if(WITH_ARMV8)
+            check_armv8_compiler_flag()
+            if(HAVE_ARMV8_INLINE_ASM OR HAVE_ARMV8_INTRIN)
+                add_definitions(-DARM_CRC32)
+                set(ARMV8_SRCS ${ARCHDIR}/crc32_armv8.c)
+                set_property(SOURCE ${ARMV8_SRCS} PROPERTY COMPILE_FLAGS "${ARMV8FLAG} ${NOLTOFLAG}")
+                list(APPEND ZLIB_ARCH_SRCS ${ARMV8_SRCS})
+                add_feature_info(ARMV8_CRC 1 "Support ARMv8 optimized CRC hash generation, using \"${ARMV8FLAG}\"")
+                if(HAVE_ARMV8_INTRIN)
+                    add_definitions(-DARM_CRC32_INTRIN)
+                endif()
             else()
-                set(WITH_ACLE OFF)
+                set(WITH_ARMV8 OFF)
             endif()
         else()
-            set(WITH_ACLE OFF)
+            set(WITH_ARMV8 OFF)
         endif()
         if(WITH_NEON)
             check_neon_compiler_flag()
@@ -967,8 +985,10 @@ if(WITH_OPTIM)
                 add_definitions(-DX86_AVX512)
                 list(APPEND AVX512_SRCS ${ARCHDIR}/adler32_avx512.c)
                 add_feature_info(AVX512_ADLER32 1 "Support AVX512-accelerated adler32, using \"${AVX512FLAG}\"")
-                list(APPEND ZLIB_ARCH_SRCS ${AVX512_SRCS})
+                list(APPEND AVX512_SRCS ${ARCHDIR}/chunkset_avx512.c)
+                add_feature_info(AVX512_CHUNKSET 1 "Support AVX512 optimized chunkset, using \"${AVX512FLAG}\"")
                 list(APPEND ZLIB_ARCH_HDRS ${ARCHDIR}/adler32_avx512_p.h)
+                list(APPEND ZLIB_ARCH_SRCS ${AVX512_SRCS})
                 set_property(SOURCE ${AVX512_SRCS} PROPERTY COMPILE_FLAGS "${AVX512FLAG} ${NOLTOFLAG}")
             else()
                 set(WITH_AVX512 OFF)
@@ -1068,6 +1088,9 @@ set(ZLIB_PUBLIC_HDRS
     ${CMAKE_CURRENT_BINARY_DIR}/zlib${SUFFIX}.h
 )
 set(ZLIB_PRIVATE_HDRS
+    arch/generic/chunk_permute_table.h
+    arch/generic/compare256_p.h
+    arch/generic/generic_functions.h
     adler32_p.h
     chunkset_tpl.h
     compare256_rle.h
@@ -1181,8 +1204,6 @@ foreach(ZLIB_INSTALL_LIBRARY ${ZLIB_INSTALL_LIBRARIES})
     target_include_directories(${ZLIB_INSTALL_LIBRARY} PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}$<SEMICOLON>${CMAKE_CURRENT_SOURCE_DIR}>"
         "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
-    target_include_directories(${ZLIB_INSTALL_LIBRARY} PRIVATE "${ARCHDIR}")
-    target_include_directories(${ZLIB_INSTALL_LIBRARY} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/arch/generic")
 endforeach()
 
 if(WIN32)
@@ -1376,7 +1397,7 @@ add_feature_info(WITH_INFLATE_STRICT WITH_INFLATE_STRICT "Build with strict infl
 add_feature_info(WITH_INFLATE_ALLOW_INVALID_DIST WITH_INFLATE_ALLOW_INVALID_DIST "Build with zero fill for inflate invalid distances")
 
 if(BASEARCH_ARM_FOUND)
-    add_feature_info(WITH_ACLE WITH_ACLE "Build with ACLE")
+    add_feature_info(WITH_ARMV8 WITH_ARMV8 "Build with ARMv8 CRC32 intrinsics")
     add_feature_info(WITH_NEON WITH_NEON "Build with NEON intrinsics")
     add_feature_info(WITH_ARMV6 WITH_ARMV6 "Build with ARMv6 SIMD")
 elseif(BASEARCH_PPC_FOUND)

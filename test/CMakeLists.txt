@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5.1)
-
 macro(configure_test_executable target)
     target_include_directories(${target} PRIVATE ${PROJECT_BINARY_DIR} ${PROJECT_SOURCE_DIR})
     set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
@@ -193,7 +191,7 @@ if(WITH_GTEST)
                 test_adler32.cc             # adler32_neon(), etc
                 test_compare256.cc          # compare256_neon(), etc
                 test_compare256_rle.cc      # compare256_rle(), etc
-                test_crc32.cc               # crc32_acle(), etc
+                test_crc32.cc               # crc32_armv8(), etc
                 test_inflate_sync.cc        # expects a certain compressed block layout
                 test_main.cc                # cpu_check_features()
                 test_version.cc             # expects a fixed version string
@@ -204,10 +202,7 @@ if(WITH_GTEST)
         configure_test_executable(gtest_zlib)
 
         if(MSVC)
-            target_compile_options(gtest_zlib PRIVATE /wd4389)
-            if(BASEARCH_ARM_FOUND)
-                target_compile_options(gtest_zlib PRIVATE /EHsc)
-            endif()
+            target_compile_options(gtest_zlib PRIVATE /wd4389 /EHsc)
         endif()
 
         if(WITH_SANITIZER STREQUAL "Memory")
